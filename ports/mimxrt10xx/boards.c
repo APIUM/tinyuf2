@@ -226,6 +226,24 @@ void board_app_jump(void) {
 
   // TODO protect bootloader region
 
+  // Restore FlexSPI1 clock to high speed before jumping to XIP app.
+  // BOARD_BootClockRUN sets it to 24 MHz (OSC_RC_48M_DIV2) for safe PLL
+  // reconfiguration. The XIP app can't change it (guarded by XIP_EXTERNAL_FLASH),
+  // so we must restore it here while still executing from RAM.
+  // Use OSC_RC_400M (MUX=2), not a PLL source — the app's BOARD_BootClockRUN
+  // reconfigures PLLs which would glitch a PLL-based FlexSPI clock.
+  // OSC_RC_400M / 4 = 100 MHz, well within flash chip's 133 MHz max.
+#if defined(MIMXRT117x_SERIES)
+  {
+    clock_root_config_t cfg = {0};
+    cfg.mux = kCLOCK_FLEXSPI1_ClockRoot_MuxOscRc400M;
+    cfg.div = 4;
+    CLOCK_SetRootClock(kCLOCK_Root_Flexspi1, &cfg);
+    FLEXSPI1->MCR0 |= FLEXSPI_MCR0_SWRESET_MASK;
+    while (FLEXSPI1->MCR0 & FLEXSPI_MCR0_SWRESET_MASK) {}
+  }
+#endif
+
   // Clean and disable caches before jumping to app
   // This is needed when running at full speed (996MHz) - without it
   // stale cache data can cause a crash on startup
